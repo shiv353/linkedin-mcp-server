@@ -1,7 +1,7 @@
 [project]
 name = "mcp-server-linkedin"
 version = "4.19.0"
-description = "MCP server that gives AI assistants like Claude access to LinkedIn profiles, companies, and job postings through the user's own browser session."
+description = "REST API that gives AI assistants like Claude access to LinkedIn profiles, companies, and job postings through the user's own browser session."
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 authors = [
@@ -9,8 +9,8 @@ authors = [
 ]
 license = "Apache-2.0"
 keywords = [
-    "mcp",
-    "model-context-protocol",
+    "rest-api",
+    "fastapi",
     "ai",
     "llm",
     "anthropic",
@@ -31,11 +31,12 @@ classifiers = [
 ]
 dependencies = [
     "cryptography>=48.0.1",
-    "fastmcp>=3.0.0",
+    "fastapi>=0.115.0",
     "inquirer>=3.4.0",
     "packaging>=26.2",
     "patchright>=1.40.0",
     "python-dotenv>=1.1.1",
+    "uvicorn[standard]>=0.34.0",
 ]
 
 [project.urls]

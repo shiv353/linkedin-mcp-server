@@ -24,9 +24,7 @@ from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-import mcp.types as mt
-from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools import ToolResult
+
 from packaging.version import InvalidVersion, Version
 
 from linkedin_mcp_server import __version__
@@ -234,37 +232,3 @@ def pending_update_notice() -> str | None:
         f"Update available: mcp-server-linkedin {latest} is out (you are on "
         f"{current}). {_update_action()}"
     )
-
-
-class UpdateNoticeMiddleware(Middleware):
-    """Kick off the update check once and append the notice to a tool result once."""
-
-    def __init__(self) -> None:
-        self._kicked = False
-        self._notified = False
-        self._task: asyncio.Task[None] | None = None
-
-    async def on_call_tool(
-        self,
-        context: MiddlewareContext[mt.CallToolRequestParams],
-        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
-    ) -> ToolResult:
-        if not self._kicked:
-            self._kicked = True
-            # Seed from a fresh cache synchronously so even a single fast call can
-            # surface the notice, then refresh over the network in the background.
-            prime_from_cache()
-            # Retain a reference so the task is not garbage-collected mid-flight.
-            self._task = asyncio.create_task(refresh_latest_version())
-
-        result = await call_next(context)
-
-        if not self._notified:
-            notice = pending_update_notice()
-            if notice is not None:
-                self._notified = True
-                result.content = [
-                    *result.content,
-                    mt.TextContent(type="text", text=notice),
-                ]
-        return result

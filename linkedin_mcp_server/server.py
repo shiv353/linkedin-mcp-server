@@ -1,17 +1,16 @@
-"""
-FastMCP server implementation for LinkedIn integration with tool registration.
+"""FastAPI server implementation for LinkedIn REST API.
 
-Creates and configures the MCP server with comprehensive LinkedIn tool suite including
-person profiles, company data, job information, and session management capabilities.
+Creates and configures the FastAPI app with comprehensive LinkedIn endpoint suite
+including person profiles, company data, job information, and session management.
 """
 
 import asyncio
 import logging
-from contextlib import suppress
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 
-from fastmcp import FastMCP
-from fastmcp.server.lifespan import lifespan
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from linkedin_mcp_server import __version__
 from linkedin_mcp_server.bootstrap import (
@@ -19,88 +18,77 @@ from linkedin_mcp_server.bootstrap import (
     initialize_bootstrap,
     start_background_browser_setup_if_needed,
 )
-from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.drivers.browser import (
     close_browser,
     watch_for_handoff_requests,
 )
-from linkedin_mcp_server.error_handler import raise_tool_error
-from linkedin_mcp_server.sequential_tool_middleware import (
-    SequentialToolExecutionMiddleware,
-)
-from linkedin_mcp_server.update_check import UpdateNoticeMiddleware
-from linkedin_mcp_server.tools.company import register_company_tools
-from linkedin_mcp_server.tools.feed import register_feed_tools
-from linkedin_mcp_server.tools.job import register_job_tools
-from linkedin_mcp_server.tools.messaging import register_messaging_tools
-from linkedin_mcp_server.tools.person import register_person_tools
-from linkedin_mcp_server.tools.post import register_post_tools
+from linkedin_mcp_server.sequential_tool_middleware import SequentialExecutionMiddleware
+from linkedin_mcp_server.api.person import router as person_router
+from linkedin_mcp_server.api.company import router as company_router
+from linkedin_mcp_server.api.job import router as job_router
+from linkedin_mcp_server.api.messaging import router as messaging_router
+from linkedin_mcp_server.api.feed import router as feed_router
+from linkedin_mcp_server.api.session import router as session_router
 
 logger = logging.getLogger(__name__)
 
 
-@lifespan
-async def browser_lifespan(app: FastMCP) -> AsyncIterator[dict[str, Any]]:
-    """Manage browser lifecycle — cleanup on shutdown.
-
-    Derived runtime durability must not depend on this hook. Docker runtime
-    sessions are checkpoint-committed when they are created.
-    """
-    del app
-    logger.info("LinkedIn MCP Server starting...")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manage browser lifecycle — startup and shutdown."""
+    logger.info("LinkedIn API Server starting...")
     initialize_bootstrap(get_runtime_policy())
     await start_background_browser_setup_if_needed()
-    # Hands the browser to another process that asks for it, and closes it when
-    # idle. Both need a timer: once tool calls stop arriving, nothing else would
-    # ever notice a waiter.
+
     handoff_watch = asyncio.create_task(
         watch_for_handoff_requests(), name="linkedin-profile-handoff"
     )
     try:
-        yield {}
+        yield
     finally:
-        logger.info("LinkedIn MCP Server shutting down...")
+        logger.info("LinkedIn API Server shutting down...")
         handoff_watch.cancel()
         with suppress(asyncio.CancelledError):
             await handoff_watch
         await close_browser()
 
 
-def create_mcp_server(*, tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS) -> FastMCP:
-    """Create and configure the MCP server with all LinkedIn tools."""
-    mcp = FastMCP(
-        "mcp-server-linkedin",
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI app with all LinkedIn endpoints."""
+    app = FastAPI(
+        title="LinkedIn API Server",
+        description="REST API for LinkedIn data extraction through browser automation.",
         version=__version__,
-        lifespan=browser_lifespan,
-        mask_error_details=True,
+        lifespan=lifespan,
     )
-    mcp.add_middleware(SequentialToolExecutionMiddleware())
-    mcp.add_middleware(UpdateNoticeMiddleware())
 
-    # Register all tools
-    register_person_tools(mcp, tool_timeout=tool_timeout)
-    register_company_tools(mcp, tool_timeout=tool_timeout)
-    register_job_tools(mcp, tool_timeout=tool_timeout)
-    register_messaging_tools(mcp, tool_timeout=tool_timeout)
-    register_feed_tools(mcp, tool_timeout=tool_timeout)
-    register_post_tools(mcp, tool_timeout=tool_timeout)
-
-    # Register session management tool
-    @mcp.tool(
-        timeout=tool_timeout,
-        title="Close Session",
-        annotations={"destructiveHint": True},
-        tags={"session"},
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
-    async def close_session() -> dict[str, Any]:
-        """Close the current browser session and clean up resources."""
-        try:
-            await close_browser()
-            return {
-                "status": "success",
-                "message": "Successfully closed the browser session and cleaned up resources",
-            }
-        except Exception as e:
-            raise_tool_error(e, "close_session")  # NoReturn
 
-    return mcp
+    # Sequential execution middleware — serializes all /api/ requests
+    app.add_middleware(SequentialExecutionMiddleware)
+
+    # Register all API routers
+    app.include_router(person_router)
+    app.include_router(company_router)
+    app.include_router(job_router)
+    app.include_router(messaging_router)
+    app.include_router(feed_router)
+    app.include_router(session_router)
+
+    @app.get("/", tags=["health"])
+    async def root() -> dict[str, str]:
+        """Health check endpoint."""
+        return {
+            "status": "ok",
+            "service": "linkedin-api-server",
+            "version": __version__,
+        }
+
+    return app

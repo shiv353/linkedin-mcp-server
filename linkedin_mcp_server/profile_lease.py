@@ -87,9 +87,11 @@ def _try_lock(fd: int, *, exclusive: bool) -> bool:
     real shared/exclusive semantics and is released by the kernel.
     """
     if _HAS_FCNTL:
-        mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        mode = (
+            fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        )  # ty: ignore[unresolved-attribute]
         try:
-            fcntl.flock(fd, mode | fcntl.LOCK_NB)
+            fcntl.flock(fd, mode | fcntl.LOCK_NB)  # ty: ignore[unresolved-attribute]
         except OSError:
             return False
         return True
@@ -108,7 +110,7 @@ def _unlock(fd: int) -> None:
     """Release a lock held on *fd*."""
     if _HAS_FCNTL:
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            fcntl.flock(fd, fcntl.LOCK_UN)  # ty: ignore[unresolved-attribute]
         except OSError:
             logger.debug("Unlock failed (ignored)", exc_info=True)
         return

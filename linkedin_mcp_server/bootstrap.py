@@ -12,9 +12,7 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import NoReturn
-
-from fastmcp import Context
+from typing import Any, NoReturn
 
 from linkedin_mcp_server.authentication import get_authentication_source
 from linkedin_mcp_server.common_utils import secure_mkdir, secure_write_text, utcnow_iso
@@ -548,9 +546,7 @@ async def _refresh_background_task_state() -> None:
             _state.auth_completed_at = utcnow_iso()
 
 
-async def ensure_tool_ready_or_raise(
-    tool_name: str, ctx: Context | None = None
-) -> None:
+async def ensure_tool_ready_or_raise(tool_name: str, ctx: Any = None) -> None:
     """Gate scrape/search tools on browser setup and authentication readiness."""
     initialize_bootstrap()
     await _refresh_background_task_state()
@@ -681,12 +677,10 @@ def _pending_login_message(prior_error: str | None) -> str:
 _AUTO_IMPORT_ANNOUNCED = False
 
 
-async def _announce_auto_import_once(ctx: Context | None) -> None:
+async def _announce_auto_import_once(ctx: Any = None) -> None:
     """Emit a single notice per process before the first auto-import.
 
-    Routes through the MCP ``ctx`` when available so a Claude Desktop user (who
-    never sees stdio server logs) is told why a keychain dialog may appear; also
-    logs once for the server operator's record.
+    Logs once for the server operator's record.
     """
     global _AUTO_IMPORT_ANNOUNCED
     if _AUTO_IMPORT_ANNOUNCED:
@@ -698,14 +692,9 @@ async def _announce_auto_import_once(ctx: Context | None) -> None:
         "AUTO_IMPORT_FROM_BROWSER=false or pass --no-auto-import to disable."
     )
     logger.info(message)
-    if ctx is not None:
-        try:
-            await ctx.info(message)
-        except Exception:  # noqa: BLE001 - a notice failure must not block import
-            logger.debug("ctx.info notice failed", exc_info=True)
 
 
-async def _try_auto_import_session(ctx: Context | None = None) -> bool:
+async def _try_auto_import_session(ctx: Any = None) -> bool:
     """Attempt a one-shot browser-session import outside ``_lock``.
 
     Returns True only when a validated session was persisted (so ``_auth_ready()``
@@ -776,7 +765,7 @@ async def _try_auto_import_session(ctx: Context | None = None) -> bool:
         set_headless(prev_headless)
 
 
-async def _start_login_if_needed(ctx: Context | None = None) -> None:
+async def _start_login_if_needed(ctx: Any = None) -> None:
     # Cheap check-and-claim under the lock; the slow work (auto-import browser
     # launch, then the bounded inline wait) runs AFTER the lock is released so
     # concurrent pollers never serialize on it.
@@ -881,13 +870,13 @@ async def _start_login_if_needed(ctx: Context | None = None) -> None:
     raise AuthenticationInProgressError(_pending_login_message(prior_error))
 
 
-async def start_login_if_needed(ctx: Context | None = None) -> None:
+async def start_login_if_needed(ctx: Any = None) -> None:
     """Public wrapper for starting the shared login workflow."""
     await _start_login_if_needed(ctx)
 
 
 async def invalidate_auth_and_trigger_relogin(
-    ctx: Context | None = None,
+    ctx: Any = None,
 ) -> NoReturn:
     """Force-invalidate stale auth state and trigger interactive login.
 
@@ -906,12 +895,6 @@ async def invalidate_auth_and_trigger_relogin(
 
         # If a login is already in progress, don't touch files — just report.
         if _state.login_task is not None and not _state.login_task.done():
-            if ctx is not None:
-                await ctx.report_progress(
-                    progress=25,
-                    total=100,
-                    message="LinkedIn login already in progress",
-                )
             raise AuthenticationInProgressError(
                 "No valid LinkedIn session is available yet. LinkedIn login is "
                 "already in progress in a browser window. Complete login there, "
@@ -936,14 +919,8 @@ async def invalidate_auth_and_trigger_relogin(
             _run_login_flow(), name="linkedin-login"
         )
 
-    if ctx is not None:
-        await ctx.report_progress(
-            progress=25,
-            total=100,
-            message="LinkedIn login browser opened",
-        )
     raise AuthenticationStartedError(
-        "Session expired. A login browser window has been opened. "
+        "No LinkedIn session available. A browser window has opened. "
         "Sign in with your LinkedIn credentials there, then retry this tool."
     )
 

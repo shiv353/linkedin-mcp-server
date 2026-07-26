@@ -3,9 +3,7 @@
 import asyncio
 import logging
 import sys
-from typing import Literal
 
-import inquirer
 
 from linkedin_mcp_server.bootstrap import (
     configure_browser_environment,
@@ -33,31 +31,10 @@ from linkedin_mcp_server.session_state import (
     runtime_storage_state_path,
     source_state_path,
 )
-from linkedin_mcp_server.server import create_mcp_server
+from linkedin_mcp_server.server import create_app
 from linkedin_mcp_server.setup import run_profile_creation
 
 logger = logging.getLogger(__name__)
-
-
-def choose_transport_interactive() -> Literal["stdio", "streamable-http"]:
-    """Prompt user for transport mode using inquirer."""
-    questions = [
-        inquirer.List(
-            "transport",
-            message="Choose mcp transport mode",
-            choices=[
-                ("stdio (Default CLI mode)", "stdio"),
-                ("streamable-http (HTTP server mode)", "streamable-http"),
-            ],
-            default="stdio",
-        )
-    ]
-    answers = inquirer.prompt(questions)
-
-    if not answers:
-        raise KeyboardInterrupt("Transport selection cancelled by user")
-
-    return answers["transport"]
 
 
 def clear_profile_and_exit() -> None:
@@ -369,25 +346,16 @@ def main() -> None:
 
         # Phase 1: Server Runtime
         try:
-            transport = config.server.transport
+            app = create_app()
 
-            # Prompt for transport in interactive mode if not explicitly set
-            if config.is_interactive and not config.server.transport_explicitly_set:
-                print("\n🚀 Server ready! Choose transport mode:")
-                transport = choose_transport_interactive()
+            import uvicorn
 
-            # Create and run the MCP server
-            mcp = create_mcp_server(tool_timeout=config.server.tool_timeout_seconds)
-
-            if transport == "streamable-http":
-                mcp.run(
-                    transport=transport,
-                    host=config.server.host,
-                    port=config.server.port,
-                    path=config.server.path,
-                )
-            else:
-                mcp.run(transport=transport)
+            uvicorn.run(
+                app,
+                host=config.server.host,
+                port=config.server.port,
+                log_level=config.server.log_level.lower(),
+            )
 
         except KeyboardInterrupt:
             exit_gracefully(0)
